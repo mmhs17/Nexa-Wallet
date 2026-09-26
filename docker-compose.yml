@@ -1,0 +1,35 @@
+# NEXA Wallet — local development infrastructure
+# Pay Smart. Stay Protected.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: nexa-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: nexa
+      POSTGRES_PASSWORD: nexa_password
+      POSTGRES_DB: nexa_wallet
+    ports:
+      - "5433:5432"
+    volumes:
+      - nexa_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U nexa -d nexa_wallet" ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # Optional: a lightweight admin UI for inspecting the database.
+  # Access at http://localhost:5050  (login: admin@nexa.local / admin)
+  adminer:
+    image: adminer:latest
+    container_name: nexa-adminer
+    restart: unless-stopped
+    ports:
+      - "5050:8080"
+    depends_on:
+      - postgres
+
+volumes:
+  nexa_pgdata:

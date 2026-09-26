@@ -1,0 +1,45 @@
+{
+    "name": "nexa-wallet-backend",
+    "version": "1.0.0",
+    "private": true,
+    "description": "NEXA Wallet API — Pay Smart. Stay Protected.",
+    "type": "module",
+    "main": "src/server.js",
+    "scripts": {
+        "dev": "node --watch src/server.js",
+        "start": "node src/server.js",
+        "prisma:generate": "prisma generate",
+        "prisma:migrate": "prisma migrate dev",
+        "prisma:push": "prisma db push",
+        "db:seed": "node prisma/seed.js",
+        "seed:demo": "node local-seed-demo.mjs",
+        "verify:phase8": "node test-phase8.mjs",
+        "verify:phase9": "node test-phase9.mjs",
+        "verify:phase10": "node test-phase10.mjs",
+        "verify:phase11a": "node test-phase11a.mjs",
+        "test": "node --test test/*.test.mjs"
+    },
+    "prisma": {
+        "seed": "node prisma/seed.js"
+    },
+    "dependencies": {
+        "@prisma/client": "^5.22.0",
+        "argon2": "^0.41.1",
+        "cookie-parser": "^1.4.7",
+        "cors": "^2.8.5",
+        "dotenv": "^16.4.5",
+        "express": "^4.21.2",
+        "express-rate-limit": "^7.4.1",
+        "express-validator": "^7.2.0",
+        "helmet": "^8.0.0",
+        "jsonwebtoken": "^9.0.2",
+        "morgan": "^1.10.0",
+        "nanoid": "^5.0.9",
+        "nodemailer": "^6.9.16",
+        "otplib": "^12.0.1",
+        "qrcode": "^1.5.4"
+    },
+    "devDependencies": {
+        "prisma": "^5.22.0"
+    }
+}

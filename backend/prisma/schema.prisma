@@ -1,0 +1,505 @@
+// NEXA Wallet — Prisma schema
+// Pay Smart. Stay Protected.
+// PostgreSQL + Prisma ORM
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// ENUMS
+// ---------------------------------------------------------------------------
+
+enum Role {
+  USER
+  ADMIN
+}
+
+enum UserStatus {
+  ACTIVE
+  LOCKED
+  SUSPENDED
+  PENDING_VERIFICATION
+}
+
+enum WalletStatus {
+  ACTIVE
+  FROZEN
+  CLOSED
+}
+
+enum TransactionStatus {
+  COMPLETED
+  PENDING
+  FAILED
+  REVERSED
+  BLOCKED
+  UNDER_REVIEW
+}
+
+enum TransactionType {
+  SEND
+  RECEIVE
+  ADD_MONEY
+  WITHDRAW
+  REQUEST
+  REFUND
+}
+
+enum RiskLevel {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+enum RequestStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+  CANCELLED
+  EXPIRED
+}
+
+enum RecurringStatus {
+  ACTIVE
+  PAUSED
+  COMPLETED
+  CANCELLED
+}
+
+enum RecurringFrequency {
+  DAILY
+  WEEKLY
+  MONTHLY
+  QUARTERLY
+  YEARLY
+}
+
+enum PaymentMethodType {
+  UPI
+  CARD
+  NETBANKING
+  WALLET
+  RAZORPAY
+  STRIPE
+}
+
+enum SecurityEventType {
+  LOGIN_SUCCESS
+  LOGIN_FAILED
+  LOGOUT
+  PASSWORD_CHANGED
+  PASSWORD_RESET
+  TWO_FA_ENABLED
+  TWO_FA_DISABLED
+  TWO_FA_VERIFIED
+  NEW_DEVICE
+  SUSPICIOUS_LOGIN
+  WALLET_FROZEN
+  WALLET_UNFROZEN
+  PAYMENT_BLOCKED
+  PAYMENT_VERIFIED
+  SESSION_REVOKED
+  ACCOUNT_LOCKED
+  RECOVERY_CODE_USED
+}
+
+enum SecuritySeverity {
+  INFO
+  WARNING
+  CRITICAL
+}
+
+enum FraudAlertStatus {
+  OPEN
+  REVIEWING
+  RESOLVED_APPROVED
+  RESOLVED_REJECTED
+}
+
+enum NotificationType {
+  PAYMENT_RECEIVED
+  PAYMENT_SENT
+  PAYMENT_FAILED
+  PAYMENT_BLOCKED
+  FRAUD_ALERT
+  NEW_LOGIN
+  NEW_DEVICE
+  PASSWORD_CHANGED
+  TWO_FA_CHANGE
+  WALLET_FREEZE
+  PAYMENT_REQUEST
+  RECURRING_REMINDER
+  SYSTEM
+}
+
+// ---------------------------------------------------------------------------
+// CORE IDENTITY
+// ---------------------------------------------------------------------------
+
+model User {
+  id                   String     @id @default(uuid())
+  nexaId               String     @unique // Human-readable NEXA Wallet ID, e.g. NEXA-4F2A9
+  username             String     @unique
+  email                String     @unique
+  phone                String?    @unique
+  passwordHash         String
+  fullName             String
+  avatarUrl            String?
+  role                 Role       @default(USER)
+  status               UserStatus @default(ACTIVE)
+  emailVerified        Boolean    @default(false)
+  emailVerifyToken     String?
+  passwordResetToken   String?
+  passwordResetExpires DateTime?
+  failedLoginAttempts  Int        @default(0)
+  txPinHash            String?
+  txPinSetAt           DateTime?
+  lockedUntil          DateTime?
+  lastLoginAt          DateTime?
+  createdAt            DateTime   @default(now())
+  updatedAt            DateTime   @updatedAt
+
+  wallet                  Wallet?
+  privacySettings         PrivacySettings?
+  twoFactor               TwoFactorAuth?
+  sessions                UserSession[]
+  beneficiaries           Beneficiary[]
+  paymentMethods          PaymentMethod[]
+  sentTransactions        Transaction[]    @relation("SentTransactions")
+  receivedTransactions    Transaction[]    @relation("ReceivedTransactions")
+  paymentRequestsSent     PaymentRequest[] @relation("RequestSender")
+  paymentRequestsReceived PaymentRequest[] @relation("RequestReceiver")
+  recurringPayments       RecurringPayment[]
+  notifications           Notification[]
+  securityEvents          SecurityEvent[]
+  auditLogs               AuditLog[]
+  categories              Category[]
+
+  @@index([email])
+  @@index([username])
+  @@map("users")
+}
+
+// ---------------------------------------------------------------------------
+// WALLET
+// ---------------------------------------------------------------------------
+
+model Wallet {
+  id             String       @id @default(uuid())
+  userId         String       @unique
+  balance        Decimal      @default(0) @db.Decimal(14, 2)
+  pendingBalance Decimal      @default(0) @db.Decimal(14, 2)
+  currency       String       @default("INR")
+  status         WalletStatus @default(ACTIVE)
+  frozenAt       DateTime?
+  frozenReason   String?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("wallets")
+}
+
+model PrivacySettings {
+  id                     String   @id @default(uuid())
+  userId                 String   @unique
+  shieldActive           Boolean  @default(false)
+  hideBalance            Boolean  @default(true)
+  hideTransactionAmounts Boolean  @default(true)
+  hideRecipientNames     Boolean  @default(true)
+  hideAnalytics          Boolean  @default(false)
+  autoLockMinutes        Int      @default(5)
+  updatedAt              DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("privacy_settings")
+}
+
+// ---------------------------------------------------------------------------
+// TRANSACTIONS
+// ---------------------------------------------------------------------------
+
+model Transaction {
+  id               String            @id @default(uuid())
+  reference        String            @unique // NEXA-TXN-2026-8F42A91
+  type             TransactionType
+  status           TransactionStatus @default(PENDING)
+  amount           Decimal           @db.Decimal(14, 2)
+  fee              Decimal           @default(0) @db.Decimal(14, 2)
+  currency         String            @default("INR")
+  senderId         String?
+  receiverId       String?
+  senderWalletId   String?
+  receiverWalletId String?
+  note             String?
+  categoryId       String?
+  paymentMethod    PaymentMethodType?
+  requiresReview   Boolean           @default(false)
+  reversalOfId     String?
+  deviceId         String?
+  ipAddress        String?
+  metadata         Json?
+  createdAt        DateTime          @default(now())
+  completedAt      DateTime?
+  updatedAt        DateTime          @updatedAt
+
+  sender     User?            @relation("SentTransactions", fields: [senderId], references: [id])
+  receiver   User?            @relation("ReceivedTransactions", fields: [receiverId], references: [id])
+  category   Category?        @relation(fields: [categoryId], references: [id])
+  risk       TransactionRisk?
+  fraudAlert FraudAlert?
+
+  @@index([senderId])
+  @@index([receiverId])
+  @@index([status])
+  @@index([createdAt])
+  @@map("transactions")
+}
+
+model TransactionRisk {
+  id             String    @id @default(uuid())
+  transactionId  String    @unique
+  riskScore      Int
+  riskLevel      RiskLevel
+  factors        Json      // [{ factor, impact, detail }]
+  recommendation String
+  engineVersion  String    @default("rules-v1")
+  featureVector  Json?     // captured features for future ML training
+  createdAt      DateTime  @default(now())
+
+  transaction Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+
+  @@index([riskScore])
+  @@index([riskLevel])
+  @@map("transaction_risk")
+}
+
+model Category {
+  id       String  @id @default(uuid())
+  userId   String?
+  name     String
+  slug     String
+  icon     String?
+  color    String?
+  isSystem Boolean @default(false)
+
+  user         User?         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transactions Transaction[]
+
+  @@unique([userId, slug])
+  @@map("categories")
+}
+
+// ---------------------------------------------------------------------------
+// BENEFICIARIES / PAYMENT METHODS
+// ---------------------------------------------------------------------------
+
+model Beneficiary {
+  id                String    @id @default(uuid())
+  userId            String
+  beneficiaryUserId String? // if beneficiary is also a NEXA user
+  displayName       String
+  handle            String // username/email/phone/nexaId used to resolve
+  handleType        String // USERNAME | EMAIL | PHONE | NEXA_ID
+  nickname          String?
+  isFavorite        Boolean   @default(false)
+  trustScore        Int       @default(50)
+  transactionCount  Int       @default(0)
+  lastTransactionAt DateTime?
+  createdAt         DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, handle])
+  @@map("beneficiaries")
+}
+
+model PaymentMethod {
+  id           String            @id @default(uuid())
+  userId       String
+  type         PaymentMethodType
+  provider     String // razorpay | stripe | nexa
+  displayLabel String // e.g. "HDFC •••• 4321", "user@upi"
+  tokenRef     String? // gateway token reference — NEVER raw card data
+  isDefault    Boolean           @default(false)
+  isActive     Boolean           @default(true)
+  createdAt    DateTime          @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("payment_methods")
+}
+
+// ---------------------------------------------------------------------------
+// PAYMENT REQUESTS / RECURRING
+// ---------------------------------------------------------------------------
+
+model PaymentRequest {
+  id          String        @id @default(uuid())
+  reference   String        @unique
+  senderId    String
+  receiverId  String
+  amount      Decimal       @db.Decimal(14, 2)
+  currency    String        @default("INR")
+  note        String?
+  status      RequestStatus @default(PENDING)
+  expiresAt   DateTime?
+  createdAt   DateTime      @default(now())
+  respondedAt DateTime?
+
+  sender   User @relation("RequestSender", fields: [senderId], references: [id])
+  receiver User @relation("RequestReceiver", fields: [receiverId], references: [id])
+
+  @@index([receiverId, status])
+  @@map("payment_requests")
+}
+
+model RecurringPayment {
+  id            String             @id @default(uuid())
+  userId        String
+  recipientId   String
+  amount        Decimal            @db.Decimal(14, 2)
+  currency      String             @default("INR")
+  frequency     RecurringFrequency
+  status        RecurringStatus    @default(ACTIVE)
+  category      String?
+  note          String?
+  nextRunAt     DateTime
+  lastRunAt     DateTime?
+  reminderHours Int                @default(24)
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([nextRunAt, status])
+  @@map("recurring_payments")
+}
+
+// ---------------------------------------------------------------------------
+// NOTIFICATIONS / SECURITY
+// ---------------------------------------------------------------------------
+
+model Notification {
+  id        String           @id @default(uuid())
+  userId    String
+  type      NotificationType
+  title     String
+  message   String
+  data      Json?
+  isRead    Boolean          @default(false)
+  createdAt DateTime         @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isRead])
+  @@map("notifications")
+}
+
+model SecurityEvent {
+  id        String           @id @default(uuid())
+  userId    String
+  type      SecurityEventType
+  severity  SecuritySeverity @default(INFO)
+  message   String
+  deviceId  String?
+  ipAddress String?
+  metadata  Json?
+  createdAt DateTime         @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@map("security_events")
+}
+
+model UserSession {
+  id           String   @id @default(uuid())
+  userId       String
+  tokenHash    String   @unique
+  deviceId     String?
+  deviceLabel  String?
+  userAgent    String?
+  ipAddress    String?
+  isTrusted    Boolean  @default(false)
+  revoked      Boolean  @default(false)
+  lastActiveAt DateTime @default(now())
+  expiresAt    DateTime
+  createdAt    DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, revoked])
+  @@map("user_sessions")
+}
+
+model TwoFactorAuth {
+  id          String    @id @default(uuid())
+  userId      String    @unique
+  enabled     Boolean   @default(false)
+  secret      String? // encrypted TOTP secret
+  confirmedAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("two_factor_auth")
+}
+
+model RecoveryCode {
+  id        String    @id @default(uuid())
+  userId    String
+  codeHash  String
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+  @@map("recovery_codes")
+}
+
+model FraudAlert {
+  id            String           @id @default(uuid())
+  transactionId String           @unique
+  userId        String
+  riskScore     Int
+  riskLevel     RiskLevel
+  factors       Json
+  status        FraudAlertStatus @default(OPEN)
+  reviewedBy    String?
+  reviewNote    String?
+  resolvedAt    DateTime?
+  createdAt     DateTime         @default(now())
+
+  transaction Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+
+  @@index([status])
+  @@map("fraud_alerts")
+}
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  userId    String?
+  actorRole Role?
+  action    String
+  entity    String?
+  entityId  String?
+  result    String
+  metadata  Json?
+  ipAddress String?
+  createdAt DateTime @default(now())
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId, createdAt])
+  @@index([action])
+  @@map("audit_logs")
+}
